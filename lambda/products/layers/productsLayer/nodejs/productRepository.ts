@@ -41,6 +41,25 @@ export class ProductRepository {
     }
   }
 
+  // operação para pegar todos os produtos diretamente em uma única consulta, ao invés de fazer uma requisição por id
+  async getProductsByIds(productIds: string[]): Promise<Product[]> {
+    const keys: { id: string }[] = []
+
+    productIds.forEach(productId => {
+      keys.push({
+        id: productId
+      })
+    })
+    const data = await this.ddbClient.batchGet({
+      RequestItems: {
+        [this.productsDdb]: {
+          Keys: keys
+        }
+      }
+    }).promise()
+    return data.Responses![this.productsDdb] as Product[]
+  }
+
   async createProduct(product: Product): Promise<Product> {
     product.id = uuid()
     await this.ddbClient.put({

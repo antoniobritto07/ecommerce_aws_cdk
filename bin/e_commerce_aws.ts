@@ -5,6 +5,8 @@ import { ProductsAppStack } from '../lib/productsApp-stack'
 import { ECommerceApiStack } from '../lib/ecommerceApi-stack'
 import { ProductsAppLayersStack } from '../lib/productsAppLayers-stack'
 import { EventsDdbStack } from '../lib/eventsDdb-stack';
+import { OrdersAppLayersStack } from '../lib/ordersAppLayers-stack'
+import { OrdersAppStack } from '../lib/ordersApp-stack'
 
 const app = new cdk.App();
 
@@ -37,10 +39,25 @@ const productsAppStack = new ProductsAppStack(app, "ProductsApp", {
 productsAppStack.addDependency(productsAppLayersStack) //stack de produtos dependende da stack de layers de produto
 productsAppStack.addDependency(eventsDdbStack) //stack de produtos dependende da stack de bando de dados de eventos
 
+const ordersAppLayersStack = new OrdersAppLayersStack(app, "OrdersAppLayers", {
+  tags: tags,
+  env: env
+})
+
+const ordersAppStack = new OrdersAppStack(app, "OrdersApp", {
+  productsDdb: productsAppStack.productsDdb,
+  tags: tags,
+  env: env
+})
+ordersAppStack.addDependency(ordersAppLayersStack)
+ordersAppStack.addDependency(productsAppStack)
+
 const eCommerceApiStack = new ECommerceApiStack(app, "ECommerceApi", {
   productsFetchHandler: productsAppStack.productsFetchHandler,
   productsAdminHandler: productsAppStack.productsAdminHandler,
+  ordersHandler: ordersAppStack.ordersHandler,
   tags: tags,
   env: env
 })
 eCommerceApiStack.addDependency(productsAppStack) //deixa explícito para o CDK que uma stack aqui depende da outra
+eCommerceApiStack.addDependency(ordersAppStack)
