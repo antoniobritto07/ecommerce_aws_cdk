@@ -6,6 +6,8 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as sns from 'aws-cdk-lib/aws-sns'
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions'
 import * as iam from "aws-cdk-lib/aws-iam"
+import * as sqs from 'aws-cdk-lib/aws-sqs'
+import * as lambdaEventSource from 'aws-cdk-lib/aws-lambda-event-sources'
 import { Construct } from 'constructs';
 
 interface OrdersAppStackProps extends cdk.StackProps {
@@ -157,5 +159,58 @@ export class OrdersAppStack extends cdk.Stack {
         })
       }
     }))
+
+    const orderEventsDlq = new sqs.Queue(this, "OrderEventsDlq", {
+      queueName: "order-events-dlq",
+      enforceSSL: false,
+      encryption: sqs.QueueEncryption.UNENCRYPTED,
+      retentionPeriod: cdk.Duration.days(10), //período padrao que mensagem que gerou excecao vai ficar dentro da fila DLQ
+    })
+    const orderEventsQueue = new sqs.Queue(this, "OrderEventsQueue", {
+      queueName: "order-events",
+      enforceSSL: false,
+      encryption: sqs.QueueEncryption.UNENCRYPTED,
+      deadLetterQueue: {
+        maxReceiveCount: 3, //quantidade de vezes que a mensagem pode ser processada antes de ser enviada para a DLQ
+        queue: orderEventsDlq
+      }
+    })
+    //deixando claro que o SQS irá apenas colocar na fila eventos de criação de orders
+    ordersTopic.addSubscription(new subs.SqsSubscription(orderEventsQueue, {
+      filterPolicy: {
+        "eventType": sns.SubscriptionFilter.stringFilter({
+          allowlist: ['ORDER_CREATED']
+        })
+      }
+    }))
+
+    const orderEmailsHandler = new lambdaNodeJS.NodejsFunction(
+      this,
+      "OrderEmailsFunction",
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        functionName: "OrderEmailsFunction",
+        entry: "lambda/orders/orderEmailsFunction.ts",
+        handler: "handler",
+        memorySize: 512,
+        timeout: cdk.Duration.seconds(2),
+        bundling: {
+          minify: true,
+          sourceMap: false,
+          nodeModules: [
+            'aws-xray-sdk-core'
+          ]
+        },
+        layers: [orderEventsLayer],
+        tracing: lambda.Tracing.ACTIVE,
+        insightsVersion: lambda.LambdaInsightsVersion.VERSION_1_0_119_0
+      })
+    //configurando que a fonte de eventos vai ser a fila //precisamos configurar manualmente que quando alguma mensagem cair nessa fila, essa será a função executada
+    orderEmailsHandler.addEventSource(new lambdaEventSource.SqsEventSource(orderEventsQueue,/* {
+      batchSize: 5, //acumula 5 mensagens antes de chamar a função de fato - depois das 5, uma única função será chamada com todas essas 5 mensagens
+      enabled: true,
+      maxBatchingWindow: cdk.Duration.minutes(1) // caso nao chegue 5 mensagens no periodo de 1 minuto, o que tem independente será enviado
+    }*/))
+    orderEventsQueue.grantConsumeMessages(orderEmailsHandler) //dando permissao de consumidor de mensagens para a funcao de orderEmailsHandler
   }
 }
