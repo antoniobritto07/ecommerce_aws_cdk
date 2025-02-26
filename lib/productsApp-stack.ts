@@ -6,6 +6,7 @@ import * as lambdaNodeJS from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as ssm from 'aws-cdk-lib/aws-ssm'; //lib necessária para ler as aws layers
+import * as iam from "aws-cdk-lib/aws-iam"
 import { Construct } from 'constructs';
 
 interface ProductsAppStackProps extends cdk.StackProps {
@@ -64,7 +65,18 @@ export class ProductsAppStack extends cdk.Stack {
         tracing: lambda.Tracing.ACTIVE,
         insightsVersion: lambda.LambdaInsightsVersion.VERSION_1_0_119_0
       })
-    props.eventsDdb.grantWriteData(productEventsHandler)
+
+    const eventsDdbPolicy = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ["dynamodb:PutItem"],
+      resources: [props.eventsDdb.tableArn],
+      conditions: {
+        ['ForAllValues:StringLike']: {
+          'dynamodb:LeadingKeys': ['#product_*']
+        }
+      }
+    })
+    productEventsHandler.addToRolePolicy(eventsDdbPolicy)
 
     this.productsFetchHandler = new lambdaNodeJS.NodejsFunction(
       this, // scope dela será o próprio scope onde ela está inserida
